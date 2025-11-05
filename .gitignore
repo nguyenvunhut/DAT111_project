@@ -1,2 +1,6 @@
-data/processed
-data/raw
+# Ignore all generated/processed files, but keep final_data.csv in the repo
+data/processed/*
+!data/processed/final_data.csv
+
+# Raw data (do not commit large/raw files)
+data/raw/*

@@ -24,8 +24,9 @@ DIFFWALK - Do you have serious difficulty walking or climbing stairs?
 DIFFDRES - Do you have difficulty dressing or bathing?
 DIFFALON - Because of a physical, mental, or emotional condition, do you have difficulty doing errands alone such as visiting a doctor´s office or shopping?
 _SMOKER3 - Four-level smoker status:  Everyday smoker, Someday smoker, Former smoker, Non-smoker
-ECIGNOW3 - Would you say you have never used e-cigarettes or other electronic vaping products in your entire life or now use them every day, use them some days, or used them in the past but do not currently use them at all?
+ECIGNOW2 - Would you say you have never used e-cigarettes or other electronic vaping products in your entire life or now use them every day, use them some days, or used them in the past but do not currently use them at all?
 LCSCTSC1 - Have you ever had a CT or CAT scan of your chest area?
+_RACEGR4 - Five-level race/ethnicity category
 _AGEG5YR - Fourteen-level age category
 HTM4 - Reported height in meters
 WTKG3 - Reported weight in kilograms
@@ -36,3 +37,4 @@ FLUSHOT7 - During the past 12 months, have you had either flu vaccine that was s
 PNEUVAC4 - Have you ever had a pneumonia shot also known as a pneumococcal vaccine?
 TETANUS1 - Have you received a tetanus shot in the past 10 years? Was this Tdap, the tetanus shot that also has pertussis or whooping cough vaccine?
 HIVRISK5 - You have injected any drug other than those prescribed for you in the past year. You have been treated for a sexually transmitted disease or STD in the past year. You have given or received money or drugs in exchange for sex in the past year.
+COVIDPOS - Has a doctor, nurse, or other health professional ever told you that you tested positive for COVID 19?
