@@ -4,3 +4,6 @@ data/processed/*
 
 # Raw data (do not commit large/raw files)
 data/raw/*
+
+#IDE
+.idea
