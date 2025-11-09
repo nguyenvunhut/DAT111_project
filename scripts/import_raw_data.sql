@@ -1,4 +1,4 @@
-﻿USE DAT111ProjectHeartDiseaseDB;
+﻿USE HeartDiseaseDB;
 GO
 
 -- 1. DEFINE VARIABLES

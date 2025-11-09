@@ -2,13 +2,13 @@ USE master;
 GO
 
 -- Kiểm tra và tạo database HeartDisease
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'HeartDisease')
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'HeartDiseaseDB')
 BEGIN
     CREATE DATABASE HeartDisease;
 END
 GO
 
-USE HeartDisease;
+USE HeartDiseaseDB;
 GO
 
 -- Bảng DIMPERSON: Nhân khẩu học (Giới tính, tuổi, chủng tộc)
@@ -33,7 +33,7 @@ CREATE TABLE dbo.DimState (
 CREATE TABLE dbo.DimCheckupTime (
     CheckupTimeID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, -- Khóa Chính
 
-    LastCheckupTime VARCHAR(50) NOT NULL,               -- Thời điểm khám: 'Within past year', '5+ years ago', ...
+    LastCheckupTime VARCHAR(100) NOT NULL,               -- Thời điểm khám: 'Within past year', '5+ years ago', ...
     CheckupRecency INT NOT NULL                         -- Mức độ gần đây (định lượng)
 );
 

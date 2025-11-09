@@ -35,7 +35,7 @@ END
 GO
 
 -- 1. Khai báo biến và gán tên database
-DECLARE @NewDBName NVARCHAR(128) = N'DAT111ProjectHeartDiseaseDB';
+DECLARE @NewDBName NVARCHAR(128) = N'HeartDiseaseDB';
 
 -- 2. Thực thi stored procedure với biến đó
 EXEC dbo.CreateDatabaseDynamically @DatabaseName = @NewDBName;

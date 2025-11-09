@@ -6,9 +6,9 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Configuration ---
-CSV_FILE_PATH = r'C:\Users\OMEN\Desktop\Learn\FPT\Project_1\data\processed\final_data.csv'
-SERVER_NAME = r'DESKTOP-C9TF579'
-DATABASE_NAME = 'HeartDisease'
+CSV_FILE_PATH = r'D:\Learning\FPT_polytechnic\Sem4\DAT111\DAT111_project\data\processed\final_data.csv'
+SERVER_NAME = r'NHUTVU'
+DATABASE_NAME = 'HeartDiseaseDB'
 DRIVER = '{ODBC Driver 17 for SQL Server}'
 
 # --- Database Connection ---
