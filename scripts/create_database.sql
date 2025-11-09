@@ -32,7 +32,7 @@ CREATE TABLE dbo.DimState (
 CREATE TABLE dbo.DimCheckupTime (
     CheckupTimeID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, -- Khóa Chính
 
-    LastCheckupTime VARCHAR(50) NOT NULL,               -- Thời điểm khám: 'Within past year', '5+ years ago', ...
+    LastCheckupTime VARCHAR(100) NOT NULL,               -- Thời điểm khám: 'Within past year', '5+ years ago', ...
     CheckupRecency INT NOT NULL                         -- Mức độ gần đây (định lượng)
 );
 
@@ -48,8 +48,8 @@ CREATE TABLE dbo.DimPhysicalActivity (
 CREATE TABLE dbo.DimLifestyle (
     LifestyleID INT IDENTITY(1,1) PRIMARY KEY CLUSTERED, -- Khóa Chính
 
-    SmokerStatus VARCHAR(30) NOT NULL,                   -- Tình trạng hút thuốc
-    ECigaretteUsage VARCHAR(30) NOT NULL,                -- Tình trạng sử dụng vape
+    SmokerStatus VARCHAR(100) NOT NULL,                   -- Tình trạng hút thuốc
+    ECigaretteUsage VARCHAR(100) NOT NULL,                -- Tình trạng sử dụng vape
     AlcoholDrinkers VARCHAR(10) NOT NULL,                -- Uống rượu: 'Yes'/'No'
     SleepQuality VARCHAR(20) NOT NULL                    -- Chất lượng giấc ngủ: 'Poor', 'Good', ...
 );
@@ -78,7 +78,7 @@ CREATE TABLE dbo.HealthRecord (
     ChronicDiseaseID INT NOT NULL,                      -- FK → DimChronicDiseases
     LifestyleID INT NOT NULL,                           -- FK → DimLifestyle
 
-    HeartDiseaseFlag BIT NOT NULL,                      -- Cờ bệnh tim: 1/0
+    HeartDiseaseFlag BIT NOT NULL,                      -- Bệnh tim: 1/0
     PhysicalHealthDays DECIMAL(10, 4) NULL,             -- Số ngày sức khỏe thể chất kém
     MentalHealthDays DECIMAL(10, 4) NULL,               -- Số ngày sức khỏe tinh thần kém
     SleepHours DECIMAL(10, 4) NULL,                     -- Giờ ngủ trung bình

@@ -1,9 +1,13 @@
 import pandas as pd
 import pyodbc
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Configuration ---
 CSV_FILE_PATH = r'C:\Users\OMEN\Desktop\Learn\FPT\Project_1\data\processed\final_data.csv'
-SERVER_NAME = r'DESKTOP-C9TF579'  # Replace with your SQL Server instance name
+SERVER_NAME = r'DESKTOP-C9TF579'
 DATABASE_NAME = 'HeartDisease'
 DRIVER = '{ODBC Driver 17 for SQL Server}'
 
@@ -18,16 +22,16 @@ def get_db_connection():
     )
     try:
         conn = pyodbc.connect(conn_str)
-        print("Database connection successful.")
+        logging.info("Database connection successful.")
         return conn
     except pyodbc.Error as ex:
         sqlstate = ex.args[0]
-        print(f"Database connection failed: {sqlstate}")
+        logging.error(f"Database connection failed: {sqlstate}")
         return None
 
 # --- Data Loading Functions ---
 
-def load_dimension(conn, df, table_name, column_map, unique_cols):
+def load_dimension(conn, df, table_name, column_map, unique_cols, id_column_name):
     """
     Loads data into a dimension table, avoiding duplicates.
     Returns a dictionary mapping unique column tuples to their new IDs.
@@ -37,11 +41,13 @@ def load_dimension(conn, df, table_name, column_map, unique_cols):
     # Get existing data from the dimension table to avoid duplicates
     existing_data = {}
     try:
-        cursor.execute(f"SELECT {', '.join(unique_cols)}, {table_name.replace('Dim', '')}ID FROM dbo.{table_name}")
+        cursor.execute(f"SELECT {', '.join(unique_cols)}, {id_column_name} FROM dbo.{table_name}")
         for row in cursor.fetchall():
             key = tuple(row[:-1])
             existing_data[key] = row[-1]
+        logging.info(f"Found {len(existing_data)} existing records in {table_name}.")
     except pyodbc.ProgrammingError:
+        logging.info(f"Table {table_name} not found or no existing data, proceeding with fresh insert.")
         # Table might not exist on first run, which is okay
         pass
 
@@ -57,7 +63,7 @@ def load_dimension(conn, df, table_name, column_map, unique_cols):
         if key not in existing_data:
             try:
                 placeholders = ', '.join(['?' for _ in column_map.values()])
-                sql = f"INSERT INTO dbo.{table_name} ({', '.join(column_map.values())}) VALUES ({placeholders}); SELECT SCOPE_IDENTITY();"
+                sql = f"INSERT INTO dbo.{table_name} ({', '.join(column_map.values())}) OUTPUT INSERTED.{id_column_name} VALUES ({placeholders})"
                 
                 values = [row[col] for col in column_map.keys()]
                 
@@ -66,21 +72,24 @@ def load_dimension(conn, df, table_name, column_map, unique_cols):
                 id_map[key] = new_id
                 new_rows += 1
             except pyodbc.IntegrityError:
-                # Handle rare race conditions in parallel environments
+                logging.warning(f"Integrity error (possible race condition) inserting into {table_name} for key {key}. Attempting to retrieve existing ID.")
                 conn.rollback()
-                cursor.execute(f"SELECT {table_name.replace('Dim', '')}ID FROM dbo.{table_name} WHERE {' AND '.join([f'{col}=?' for col in unique_cols])}", *key)
-                id_map[key] = cursor.fetchone()[0]
+                cursor.execute(f"SELECT {id_column_name} FROM dbo.{table_name} WHERE {' AND '.join([f'{col}=?' for col in unique_cols])}", *key)
+                result = cursor.fetchone()
+                if result:
+                    id_map[key] = result[0]
+                else:
+                    logging.error(f"Failed to retrieve existing ID after integrity error for {table_name} with key {key}.")
             except Exception as e:
-                print(f"Error inserting into {table_name}: {e}")
-                print(f"Problematic row: {row}")
+                logging.error(f"Error inserting into {table_name}: {e}. Problematic row: {row.to_dict()}")
                 conn.rollback()
 
 
     if new_rows > 0:
         conn.commit()
-        print(f"Inserted {new_rows} new records into {table_name}.")
+        logging.info(f"Inserted {new_rows} new records into {table_name}.")
     else:
-        print(f"No new records to insert into {table_name}.")
+        logging.info(f"No new records to insert into {table_name}.")
 
     return id_map
 
@@ -90,36 +99,36 @@ def load_fact_table(conn, df, maps):
     
     # Clear existing data to avoid duplicates if script is re-run
     try:
-        print("Clearing existing data from HealthRecord table...")
+        logging.info("Clearing existing data from HealthRecord table...")
         cursor.execute("DELETE FROM dbo.HealthRecord")
         # Reset identity seed
         cursor.execute("DBCC CHECKIDENT ('dbo.HealthRecord', RESEED, 0)")
         conn.commit()
-        print("HealthRecord table cleared.")
+        logging.info("HealthRecord table cleared.")
     except pyodbc.ProgrammingError:
-        print("HealthRecord table not found, skipping delete.")
+        logging.warning("HealthRecord table not found, skipping delete.")
         conn.rollback()
 
 
-    print("Preparing to load HealthRecord fact table...")
+    logging.info("Preparing to load HealthRecord fact table...")
     
     records_to_insert = []
-    for _, row in df.iterrows():
+    for index, row in df.iterrows():
         try:
             person_key = (row['Sex'], row['AgeCategory'], row['RaceEthnicityCategory'])
             state_key = (row['State'],)
-            checkup_key = (row['LastCheckupTime'],)
+            checkup_key = (row['LastCheckupTime'], row['CheckupRecency'])
             
             # Handle derived columns
             activity_level = 'Active' if row['PhysicalActivities'] == 'Yes' else 'Inactive'
             physical_activity_key = (row['PhysicalActivities'], activity_level)
 
-            lifestyle_key = (row['SmokerStatus'], row['ECigaretteUsage'], row['AlcoholDrinkers'], 'Good') # Assuming 'Good' sleep quality
+            lifestyle_key = (row['SmokerStatus'], row['ECigaretteUsage'], row['AlcoholDrinkers'], 'Good')
 
             chronic_key = (
                 row['HadDiabetes'], row['HadArthritis'], row['HadCOPD'], 
                 row['HadKidneyDisease'], row['HadDepressiveDisorder'], 
-                'No', row['HadSkinCancer'] # 'No' for HadCancer
+                'No', row['HadSkinCancer']
             )
 
             # Map keys to IDs
@@ -146,14 +155,14 @@ def load_fact_table(conn, df, maps):
             )
             records_to_insert.append(record)
         except KeyError as e:
-            print(f"Skipping row due to missing key in dimension map: {e}. Row: {row.to_dict()}")
+            logging.warning(f"Skipping row {index} due to missing key in dimension map: {e}. Row data: {row.to_dict()}")
             continue
         except Exception as e:
-            print(f"An unexpected error occurred while processing a row: {e}. Row: {row.to_dict()}")
+            logging.error(f"An unexpected error occurred while processing row {index} for HealthRecord: {e}. Row data: {row.to_dict()}")
             continue
 
     if not records_to_insert:
-        print("No records to insert into HealthRecord table.")
+        logging.info("No records to insert into HealthRecord table.")
         return
 
     try:
@@ -167,9 +176,9 @@ def load_fact_table(conn, df, maps):
         cursor.fast_executemany = True
         cursor.executemany(sql, records_to_insert)
         conn.commit()
-        print(f"Successfully inserted {len(records_to_insert)} records into HealthRecord.")
+        logging.info(f"Successfully inserted {len(records_to_insert)} records into HealthRecord.")
     except Exception as e:
-        print(f"Failed to bulk insert into HealthRecord: {e}")
+        logging.error(f"Failed to bulk insert into HealthRecord: {e}")
         conn.rollback()
 
 
@@ -180,7 +189,7 @@ def main():
     if conn is None:
         return
 
-    print(f"Reading data from {CSV_FILE_PATH}...")
+    logging.info(f"Reading data from {CSV_FILE_PATH}...")
     try:
         df = pd.read_csv(CSV_FILE_PATH, low_memory=False)
         # Basic data cleaning
@@ -199,35 +208,35 @@ def main():
                 df[col] = df[col].apply(lambda x: 'Yes' if x == 'Yes' else 'No')
 
     except FileNotFoundError:
-        print(f"Error: The file {CSV_FILE_PATH} was not found.")
+        logging.error(f"Error: The file {CSV_FILE_PATH} was not found.")
         return
     except Exception as e:
-        print(f"An error occurred while reading the CSV file: {e}")
+        logging.error(f"An error occurred while reading the CSV file: {e}")
         return
 
-    print("Starting dimension table loading...")
+    logging.info("Starting dimension table loading...")
     
     # DimPerson
     person_map = load_dimension(conn, df, 'DimPerson', 
                                 {'Sex': 'Sex', 'AgeCategory': 'AgeCategory', 'RaceEthnicityCategory': 'RaceEthnicityCategory'},
-                                ['Sex', 'AgeCategory', 'RaceEthnicityCategory'])
+                                ['Sex', 'AgeCategory', 'RaceEthnicityCategory'], 'PersonID')
 
     # DimState
-    state_map = load_dimension(conn, df, 'DimState', {'State': 'StateName'}, ['StateName'])
+    state_map = load_dimension(conn, df, 'DimState', {'State': 'StateName'}, ['StateName'], 'StateID')
 
     # DimCheckupTime
-    df['CheckupRecency'] = df['LastCheckupTime'].apply(lambda x: 1 if 'year' in x else 5) # Simplified logic
-    checkup_map = load_dimension(conn, df, 'DimCheckupTime', {'LastCheckupTime': 'LastCheckupTime', 'CheckupRecency': 'CheckupRecency'}, ['LastCheckupTime'])
+    df['CheckupRecency'] = df['LastCheckupTime'].apply(lambda x: 1 if 'year' in x else 5)
+    checkup_map = load_dimension(conn, df, 'DimCheckupTime', {'LastCheckupTime': 'LastCheckupTime', 'CheckupRecency': 'CheckupRecency'}, ['LastCheckupTime'], 'CheckupTimeID')
 
     # DimPhysicalActivity
     df['ActivityLevel'] = df['PhysicalActivities'].apply(lambda x: 'Active' if x == 'Yes' else 'Inactive')
-    pa_map = load_dimension(conn, df, 'DimPhysicalActivity', {'PhysicalActivities': 'PhysicalActivities', 'ActivityLevel': 'ActivityLevel'}, ['PhysicalActivities', 'ActivityLevel'])
+    pa_map = load_dimension(conn, df, 'DimPhysicalActivity', {'PhysicalActivities': 'PhysicalActivities', 'ActivityLevel': 'ActivityLevel'}, ['PhysicalActivities', 'ActivityLevel'], 'PhysicalActivityID')
 
     # DimLifestyle
     df['SleepQuality'] = 'Good' # Placeholder
     lifestyle_map = load_dimension(conn, df, 'DimLifestyle', 
                                    {'SmokerStatus': 'SmokerStatus', 'ECigaretteUsage': 'ECigaretteUsage', 'AlcoholDrinkers': 'AlcoholDrinkers', 'SleepQuality': 'SleepQuality'},
-                                   ['SmokerStatus', 'ECigaretteUsage', 'AlcoholDrinkers', 'SleepQuality'])
+                                   ['SmokerStatus', 'ECigaretteUsage', 'AlcoholDrinkers', 'SleepQuality'], 'LifestyleID')
 
     # DimChronicDiseases
     df['HadCancer'] = 'No' # Add placeholder column
@@ -235,9 +244,9 @@ def main():
                                  {'HadDiabetes': 'HadDiabetes', 'HadArthritis': 'HadArthritis', 'HadCOPD': 'HadCOPD', 
                                   'HadKidneyDisease': 'HadKidneyDisease', 'HadDepressiveDisorder': 'HadDepressiveDisorder', 
                                   'HadCancer': 'HadCancer', 'HadSkinCancer': 'HadSkinCancer'},
-                                 ['HadDiabetes', 'HadArthritis', 'HadCOPD', 'HadKidneyDisease', 'HadDepressiveDisorder', 'HadCancer', 'HadSkinCancer'])
+                                 ['HadDiabetes', 'HadArthritis', 'HadCOPD', 'HadKidneyDisease', 'HadDepressiveDisorder', 'HadCancer', 'HadSkinCancer'], 'ChronicDiseaseID')
 
-    print("Dimension loading complete.")
+    logging.info("Dimension loading complete.")
 
     # Load Fact Table
     maps = {
@@ -251,7 +260,7 @@ def main():
     load_fact_table(conn, df, maps)
 
     conn.close()
-    print("ETL process finished.")
+    logging.info("ETL process finished.")
 
 if __name__ == '__main__':
     main()
