@@ -13,12 +13,11 @@ IF OBJECT_ID(QUOTENAME(@Schema) + N'.' + QUOTENAME(@RawTable),'U') IS NULL
 BEGIN
     IF @AutoImport = 0
     BEGIN
-        RAISERROR('Ch?a c� b?ng %s.%s. B?t @AutoImport = 1 ho?c t?o tr??c khi ch?y.',
+        RAISERROR('Ch?a c� b?ng %s.%s. B?t @AutoImport = 1 ho?c t?o tr??c khi ch?y.gt',
                   16, 1, @Schema, @RawTable);
         RETURN;
     END
 
-    PRINT N'-- T?o b?ng raw v� ch?a t?n t?i...';
 
     DECLARE @sql NVARCHAR(MAX) = N'
     CREATE TABLE ' + QUOTENAME(@Schema) + N'.' + QUOTENAME(@RawTable) + N'(
