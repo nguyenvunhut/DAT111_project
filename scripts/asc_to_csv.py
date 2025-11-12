@@ -17,6 +17,7 @@ This script:
 """
 
 import re
+import csv
 import html
 import argparse
 import os
@@ -66,7 +67,7 @@ def parse_codebook(codebook_path: str) -> List[Tuple[str, int, int]]:
 
 
 # ----------------------------------------------------------------------
-# Step 2: Build column specs for pandas.read_fwf
+# Step 2: Build column specs for read_fwf_gerator
 # ----------------------------------------------------------------------
 def build_colspecs_and_names(vars_positions: List[Tuple[str, int, int]]):
     """
@@ -81,6 +82,59 @@ def build_colspecs_and_names(vars_positions: List[Tuple[str, int, int]]):
         names.append(var)
     return names, colspecs
 
+def read_fwf_generator(filepath, colspecs, names):
+    """
+    Reads a fixed-width file line by line, yielding one dictionary per row.
+    This mimics the iterable nature of pd.read_fwf(chunksize=...).
+    
+    Args:
+        filepath (str): Path to the file.
+        colspecs (list): List of (start, end) tuples for slicing.
+        names (list): List of column names.
+    """
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                # Use rstrip() to remove trailing newline characters
+                # without affecting potential leading whitespace in a field.
+                cleaned_line = line.rstrip('\n\r')
+
+                # Build a list of values by slicing the line
+                values = []
+                for start, end in colspecs:
+                    # Slice the line and strip whitespace from the field
+                    # This achieves dtype=str by default.
+                    field_value = cleaned_line[start:end].strip()
+                    values.append(field_value)
+                
+                # Yield the row as a dictionary
+                if len(values) == len(names):
+                    yield dict(zip(names, values))
+                    
+    except FileNotFoundError:
+        print(f"Error: File not found at {filepath}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def chunk_generator(generator, chunksize):
+    """
+    Takes a generator and yields its items in chunks (lists).
+    
+    Args:
+        generator (iterable): The generator to wrap (e.g., read_fwf_generator).
+        chunksize (int): The number of items to include in each chunk.
+    """
+    chunk = []
+    for i, item in enumerate(generator):
+        chunk.append(item)
+        # When the chunk is full, yield it and start a new one
+        if (i + 1) % chunksize == 0:
+            yield chunk
+            chunk = []
+    
+    # Yield the final, potentially smaller chunk
+    if chunk:
+        yield chunk
 
 # ----------------------------------------------------------------------
 # Step 3: Optional preview/validation helper
@@ -121,14 +175,10 @@ def convert(asc_path: str, codebook_path: str, out_csv: str,
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    # Stream-read the file using pandas.read_fwf
-    reader = pd.read_fwf(
-        asc_path,
-        colspecs=colspecs,
-        names=names,
-        dtype=str,
-        chunksize=chunksize
-    )
+    # Stream-read the file using read_fwf_generator
+
+    row_generator = read_fwf_generator(asc_path, colspecs, names)
+    reader = chunk_generator(row_generator, chunksize)
 
     written = 0
     first = True
@@ -140,14 +190,28 @@ def convert(asc_path: str, codebook_path: str, out_csv: str,
             chunk = chunk.iloc[:(max_rows - written)]
 
         # Write to CSV (append after first chunk)
-        chunk.to_csv(out_csv, mode='w' if first else 'a',
-                     index=False, header=first)
+        try:
+            # Determine mode and open the file
+            mode = 'w' if first else 'a'
+            # Use newline='' as required by the csv module
+            with open(out_csv, mode, newline='', encoding='utf-8') as f:
+                # 'names' is the list of column headers from the codebook
+                writer = csv.DictWriter(f, fieldnames=names)
+                
+                if first:
+                    writer.writeheader() # Write header only once
+                
+                writer.writerows(chunk) # Write all rows in the chunk
+                
+        except Exception as e:
+            print(f"Error writing to CSV: {e}", file=sys.stderr)
+            break # Stop processing if we can't write
+
         written += len(chunk)
         first = False
         print(f'Wrote {written} rows so far...')
 
     print(f'Done. Total rows written: {written} -> {out_csv}')
-
 
 # ----------------------------------------------------------------------
 # Step 5: CLI entry point
@@ -155,8 +219,8 @@ def convert(asc_path: str, codebook_path: str, out_csv: str,
 def main():
     p = argparse.ArgumentParser(description='Convert LLCP fixed-width ASC to CSV using SAS HTML codebook.')
     p.add_argument('--asc', default='../data/raw/LLCP2022.ASC', help='Path to LLCP2022.ASC fixed-width file')
-    p.add_argument('--codebook', default='../documentation/USCODE22_LLCP_102523.HTML', help='Path to SAS HTML codebook (e.g. USCODE22_LLCP_102523.HTML)')
-    p.add_argument('--out', default='../data/processed/converted_from_script_new01.csv', help='Output CSV path')
+    p.add_argument('--codebook', default='../documentation/USCODE22_LLCP_102523.HTML', help='Path to SAS HTML codebook')
+    p.add_argument('--out', default='../data/processed/converted_from_script_new02.csv', help='Output CSV path')
     p.add_argument('--chunksize', type=int, default=50000, help='Number of lines to process per chunk')
     p.add_argument('--max-rows', type=int, default=None, help='Optional: stop after this many rows (for testing)')
     args = p.parse_args()
