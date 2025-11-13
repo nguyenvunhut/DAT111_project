@@ -22,7 +22,7 @@ BEGIN TRY
         ISNULL(R.Sex, 'Unknown') AS Sex,
         ISNULL(R.AgeCategory, 'Unknown') AS AgeCategory,
         ISNULL(R.RaceEthnicityCategory, 'Unknown') AS RaceEthnicityCategory
-    FROM dbo.HeartDiseaseRaw AS R;
+    FROM dbo.HeartDiseaseCleaned AS R;
 
 
     PRINT N'Đang nạp dữ liệu vào dbo.DimState...';
@@ -55,7 +55,7 @@ BEGIN TRY
             ) THEN 'Southwest'
             ELSE NULL -- Cho 'Guam', 'Puerto Rico', 'Virgin Islands', 'Unknown'
         END AS Region
-    FROM dbo.HeartDiseaseRaw AS R;
+    FROM dbo.HeartDiseaseCleaned AS R;
 
 
     PRINT N'Đang nạp dữ liệu vào dbo.DimCheckupTime...';
@@ -69,7 +69,7 @@ BEGIN TRY
             WHEN R.LastCheckupTime = '5 or more years ago' THEN 4
             ELSE 0
         END AS CheckupRecency
-    FROM dbo.HeartDiseaseRaw AS R;
+    FROM dbo.HeartDiseaseCleaned AS R;
 
 
     PRINT N'Đang nạp dữ liệu vào dbo.DimPhysicalActivity...';
@@ -81,7 +81,7 @@ BEGIN TRY
             WHEN R.PhysicalActivities = 'No' THEN 'Inactive'
             ELSE 'Unknown'
         END AS ActivityLevel
-    FROM dbo.HeartDiseaseRaw AS R;
+    FROM dbo.HeartDiseaseCleaned AS R;
 
 
     PRINT N'Đang nạp dữ liệu vào dbo.DimLifestyle...';
@@ -106,7 +106,7 @@ BEGIN TRY
             WHEN R.SleepHours > 8 THEN 'Excessive'
             ELSE 'Unknown'
         END AS SleepQuality
-    FROM dbo.HeartDiseaseRaw AS R;
+    FROM dbo.HeartDiseaseCleaned AS R;
 
 
     PRINT N'Đang nạp dữ liệu vào dbo.DimChronicDiseases...';
@@ -126,7 +126,7 @@ BEGIN TRY
         ISNULL(R.HadDepressiveDisorder, 'No') AS HadDepressiveDisorder,
         CASE WHEN ISNULL(R.HadSkinCancer, 'No') = 'Yes' THEN 'Yes' ELSE 'No' END AS HadCancer,
         ISNULL(R.HadSkinCancer, 'No') AS HadSkinCancer
-    FROM dbo.HeartDiseaseRaw AS R;
+    FROM dbo.HeartDiseaseCleaned AS R;
 
 
     -- 3. POPULATE BẢNG FACT (HEALTHRECORD)
@@ -181,7 +181,7 @@ BEGIN TRY
             CASE WHEN ISNULL(R.HadSkinCancer, 'No') = 'Yes' THEN 'Yes' ELSE 'No' END AS HadCancer,
             ISNULL(R.HadSkinCancer, 'No') AS HadSkinCancer
         FROM
-            dbo.HeartDiseaseRaw AS R
+            dbo.HeartDiseaseCleaned AS R
     )
     -- Bước 3.2: INSERT vào bảng Fact bằng cách JOIN CTE với các bảng Dim
     INSERT INTO dbo.HealthRecord (
