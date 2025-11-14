@@ -1,4 +1,4 @@
-import pandas as pd
+import csv
 import pyodbc
 import logging
 
@@ -31,7 +31,7 @@ def get_db_connection():
 
 # --- Data Loading Functions ---
 
-def load_dimension(conn, df, table_name, column_map, unique_cols, id_column_name):
+def load_dimension(conn, data, table_name, column_map, unique_cols, id_column_name):
     """
     Loads data into a dimension table, avoiding duplicates.
     Returns a dictionary mapping unique column tuples to their new IDs.
@@ -52,12 +52,20 @@ def load_dimension(conn, df, table_name, column_map, unique_cols, id_column_name
         pass
 
     # Prepare data for insertion
-    data_to_insert = df[list(column_map.keys())].drop_duplicates()
+    data_to_insert = []
+    seen_keys = set()
+    for row in data:
+        key_tuple = tuple(row.get(col) for col in column_map.keys())
+        if key_tuple not in seen_keys:
+            seen_keys.add(key_tuple)
+            # Create a dictionary with only the required columns
+            insert_row = {col: row.get(col) for col in column_map.keys()}
+            data_to_insert.append(insert_row)
     
     id_map = existing_data.copy()
     new_rows = 0
 
-    for _, row in data_to_insert.iterrows():
+    for row in data_to_insert:
         key = tuple(row[col] for col in column_map.keys())
         
         if key not in existing_data:
@@ -81,7 +89,7 @@ def load_dimension(conn, df, table_name, column_map, unique_cols, id_column_name
                 else:
                     logging.error(f"Failed to retrieve existing ID after integrity error for {table_name} with key {key}.")
             except Exception as e:
-                logging.error(f"Error inserting into {table_name}: {e}. Problematic row: {row.to_dict()}")
+                logging.error(f"Error inserting into {table_name}: {e}. Problematic row: {row}")
                 conn.rollback()
 
 
@@ -93,7 +101,7 @@ def load_dimension(conn, df, table_name, column_map, unique_cols, id_column_name
 
     return id_map
 
-def load_fact_table(conn, df, maps):
+def load_fact_table(conn, data, maps):
     """Loads data into the HealthRecord fact table."""
     cursor = conn.cursor()
     
@@ -113,7 +121,7 @@ def load_fact_table(conn, df, maps):
     logging.info("Preparing to load HealthRecord fact table...")
     
     records_to_insert = []
-    for index, row in df.iterrows():
+    for index, row in enumerate(data):
         try:
             person_key = (row['Sex'], row['AgeCategory'], row['RaceEthnicityCategory'])
             state_key = (row['State'],)
@@ -155,10 +163,10 @@ def load_fact_table(conn, df, maps):
             )
             records_to_insert.append(record)
         except KeyError as e:
-            logging.warning(f"Skipping row {index} due to missing key in dimension map: {e}. Row data: {row.to_dict()}")
+            logging.warning(f"Skipping row {index} due to missing key in dimension map: {e}. Row data: {row}")
             continue
         except Exception as e:
-            logging.error(f"An unexpected error occurred while processing row {index} for HealthRecord: {e}. Row data: {row.to_dict()}")
+            logging.error(f"An unexpected error occurred while processing row {index} for HealthRecord: {e}. Row data: {row}")
             continue
 
     if not records_to_insert:
@@ -182,6 +190,22 @@ def load_fact_table(conn, df, maps):
         conn.rollback()
 
 
+# --- Helper Functions ---
+def calculate_means(data, columns):
+    """Calculates the mean for specified columns in a list of dictionaries."""
+    sums = {col: 0 for col in columns}
+    counts = {col: 0 for col in columns}
+    for row in data:
+        for col in columns:
+            if row.get(col) and row[col] not in ['NA', '', 'None']:
+                try:
+                    sums[col] += float(row[col])
+                    counts[col] += 1
+                except (ValueError, TypeError):
+                    continue  # Ignore non-numeric values
+    return {col: sums[col] / counts[col] if counts[col] > 0 else 0 for col in columns}
+
+
 # --- Main Execution ---
 def main():
     """Main function to run the ETL process."""
@@ -191,56 +215,78 @@ def main():
 
     logging.info(f"Reading data from {CSV_FILE_PATH}...")
     try:
-        df = pd.read_csv(CSV_FILE_PATH, low_memory=False)
-        # Basic data cleaning
-        df = df.fillna({
-            'PhysicalHealthDays': 0,
-            'MentalHealthDays': 0,
-            'SleepHours': df['SleepHours'].mean(),
-            'HeightInMeters': df['HeightInMeters'].mean(),
-            'WeightInKilograms': df['WeightInKilograms'].mean(),
-            'BMI': df['BMI'].mean()
-        })
-        # Ensure 'Yes'/'No' columns are consistent
-        for col in ['HadHeartAttack', 'HadAngina', 'HadStroke', 'HadAsthma', 'HadSkinCancer', 'HadCOPD', 
-                    'HadDepressiveDisorder', 'HadKidneyDisease', 'HadArthritis', 'HadDiabetes', 'PhysicalActivities', 'AlcoholDrinkers']:
-            if col in df.columns:
-                df[col] = df[col].apply(lambda x: 'Yes' if x == 'Yes' else 'No')
+        with open(CSV_FILE_PATH, mode='r', encoding='utf-8') as infile:
+            reader = csv.DictReader(infile)
+            data = list(reader)
+
+        # --- Basic data cleaning ---
+        numeric_cols_for_mean = ['SleepHours', 'HeightInMeters', 'WeightInKilograms', 'BMI']
+        means = calculate_means(data, numeric_cols_for_mean)
+
+        # Define columns to be processed
+        yes_no_cols = [
+            'HadHeartAttack', 'HadAngina', 'HadStroke', 'HadAsthma', 'HadSkinCancer', 
+            'HadCOPD', 'HadDepressiveDisorder', 'HadKidneyDisease', 'HadArthritis', 
+            'HadDiabetes', 'PhysicalActivities', 'AlcoholDrinkers'
+        ]
+        
+        numeric_cols_to_fill = ['PhysicalHealthDays', 'MentalHealthDays'] + numeric_cols_for_mean
+
+        for row in data:
+            # Fill missing numeric values
+            for col in numeric_cols_to_fill:
+                if not row.get(col) or row[col] in ['NA', '', 'None']:
+                    row[col] = means.get(col, 0) # Use mean if available, else 0
+            
+            # Convert numeric columns to float
+            for col in numeric_cols_to_fill:
+                try:
+                    row[col] = float(row[col])
+                except (ValueError, TypeError):
+                    row[col] = 0.0 # Default to 0.0 if conversion fails
+
+            # Standardize 'Yes'/'No' columns
+            for col in yes_no_cols:
+                if col in row:
+                    row[col] = 'Yes' if row[col] == 'Yes' else 'No'
+            
+            # Add derived/placeholder columns
+            row['CheckupRecency'] = 1 if 'year' in row.get('LastCheckupTime', '') else 5
+            row['ActivityLevel'] = 'Active' if row.get('PhysicalActivities') == 'Yes' else 'Inactive'
+            row['SleepQuality'] = 'Good'  # Placeholder
+            row['HadCancer'] = 'No'  # Placeholder
+
 
     except FileNotFoundError:
         logging.error(f"Error: The file {CSV_FILE_PATH} was not found.")
         return
     except Exception as e:
-        logging.error(f"An error occurred while reading the CSV file: {e}")
+        logging.error(f"An error occurred while reading or cleaning the CSV file: {e}")
         return
 
     logging.info("Starting dimension table loading...")
     
     # DimPerson
-    person_map = load_dimension(conn, df, 'DimPerson', 
+    person_map = load_dimension(conn, data, 'DimPerson', 
                                 {'Sex': 'Sex', 'AgeCategory': 'AgeCategory', 'RaceEthnicityCategory': 'RaceEthnicityCategory'},
                                 ['Sex', 'AgeCategory', 'RaceEthnicityCategory'], 'PersonID')
 
     # DimState
-    state_map = load_dimension(conn, df, 'DimState', {'State': 'StateName'}, ['StateName'], 'StateID')
+    state_map = load_dimension(conn, data, 'DimState', {'State': 'StateName'}, ['StateName'], 'StateID')
 
     # DimCheckupTime
-    df['CheckupRecency'] = df['LastCheckupTime'].apply(lambda x: 1 if 'year' in x else 5)
-    checkup_map = load_dimension(conn, df, 'DimCheckupTime', {'LastCheckupTime': 'LastCheckupTime', 'CheckupRecency': 'CheckupRecency'}, ['LastCheckupTime'], 'CheckupTimeID')
+    checkup_map = load_dimension(conn, data, 'DimCheckupTime', {'LastCheckupTime': 'LastCheckupTime', 'CheckupRecency': 'CheckupRecency'}, ['LastCheckupTime'], 'CheckupTimeID')
 
     # DimPhysicalActivity
-    df['ActivityLevel'] = df['PhysicalActivities'].apply(lambda x: 'Active' if x == 'Yes' else 'Inactive')
-    pa_map = load_dimension(conn, df, 'DimPhysicalActivity', {'PhysicalActivities': 'PhysicalActivities', 'ActivityLevel': 'ActivityLevel'}, ['PhysicalActivities', 'ActivityLevel'], 'PhysicalActivityID')
+    pa_map = load_dimension(conn, data, 'DimPhysicalActivity', {'PhysicalActivities': 'PhysicalActivities', 'ActivityLevel': 'ActivityLevel'}, ['PhysicalActivities', 'ActivityLevel'], 'PhysicalActivityID')
 
     # DimLifestyle
-    df['SleepQuality'] = 'Good' # Placeholder
-    lifestyle_map = load_dimension(conn, df, 'DimLifestyle', 
+    lifestyle_map = load_dimension(conn, data, 'DimLifestyle', 
                                    {'SmokerStatus': 'SmokerStatus', 'ECigaretteUsage': 'ECigaretteUsage', 'AlcoholDrinkers': 'AlcoholDrinkers', 'SleepQuality': 'SleepQuality'},
                                    ['SmokerStatus', 'ECigaretteUsage', 'AlcoholDrinkers', 'SleepQuality'], 'LifestyleID')
 
     # DimChronicDiseases
-    df['HadCancer'] = 'No' # Add placeholder column
-    chronic_map = load_dimension(conn, df, 'DimChronicDiseases',
+    chronic_map = load_dimension(conn, data, 'DimChronicDiseases',
                                  {'HadDiabetes': 'HadDiabetes', 'HadArthritis': 'HadArthritis', 'HadCOPD': 'HadCOPD', 
                                   'HadKidneyDisease': 'HadKidneyDisease', 'HadDepressiveDisorder': 'HadDepressiveDisorder', 
                                   'HadCancer': 'HadCancer', 'HadSkinCancer': 'HadSkinCancer'},
@@ -257,7 +303,7 @@ def main():
         'lifestyle': lifestyle_map,
         'chronic': chronic_map
     }
-    load_fact_table(conn, df, maps)
+    load_fact_table(conn, data, maps)
 
     conn.close()
     logging.info("ETL process finished.")
