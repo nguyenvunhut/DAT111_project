@@ -24,13 +24,6 @@ import os
 import sys
 from typing import List, Tuple
 
-try:
-    import pandas as pd
-except ImportError:
-    print("pandas is required. Install it with: pip install pandas", file=sys.stderr)
-    raise
-
-
 # ----------------------------------------------------------------------
 # Step 1: Parse the SAS HTML codebook
 # ----------------------------------------------------------------------
